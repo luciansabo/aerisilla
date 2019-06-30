@@ -1,0 +1,59 @@
+// --------------------------------------------------------
+// config
+// --------------------------------------------------------
+// Arduino IDE Board: NodeMCU 1.0 (ESP12E Module) (ESP8266)
+
+const char* DEVICE_NAME = "Aerisilla";
+
+// You should get Auth Token in the Blynk App.
+// Go to the Project Settings (nut icon).
+const char BLYNK_TOKEN[] = "<your-token>";
+
+// Your WiFi credentials.
+// Set password to "" for open networks.
+const char ssid[] = "your-ssid";
+const char pass[] = "your-password";
+const IPAddress staticIP(192, 168, 0, 12); // ESP static ip
+const IPAddress gateway(192, 168, 0, 1);   // IP Address of your WiFi Router (Gateway)
+const IPAddress subnet(255, 255, 255, 0);  // Subnet mask
+const IPAddress dns(1, 1, 1, 1);  // DNS (cloudflare)
+
+const unsigned int WIFI_WAIT_DELAY = 400;           // 400ms
+const unsigned int WIFI_CONNECTION_TIMEOUT = 30000; // 30s
+const unsigned int WIFI_CHECK_INTERVAL = 50000;     // 50s
+const uint8_t MAX_WIFI_ERRORS_UNTIL_RESTART = 150; // at 50s check frequency ESP will restart in 125m if WIFI is stil disconnected
+
+const unsigned int BLYNK_SERVER_TIMEOUT = 30000;   //  15s blynk server connection timeout
+const unsigned int BLYNK_CHECK_INTERVAL = 60000;   // 60s check Blynk server connectivity frequency
+
+// used for Blynk LED indicator
+const char* COLOR_GREEN = "#00cc00";
+const char* COLOR_BLUE = "#0e7aaf";
+const char* COLOR_YELLOW = "#ffff33";
+const char* COLOR_ORANGE = "#ffd11a";
+const char* COLOR_RED = "#ff3300";
+const char* COLOR_GREY = "#cccccc";
+
+// pins
+const uint8_t DHT_PIN = 10;            // DHT22 temperature sensor Data pin
+const uint8_t INDICATOR_LED_PIN = 15;  // Led indicator output pin
+const uint8_t SHARP_LED_PIN = 14;      // Sharp Dust/particle sensor Led Pin
+const uint8_t SHARP_VO_PIN = A0;       // Sharp Dust/particle analog out pin used for reading 
+const uint8_t BUTTON_PIN = 12;         // front button input pin
+const uint8_t DOUT1_PIN = 13;          // digital output 1 (lights relay)
+const uint8_t DOUT2_PIN = 16;          // digital output 2 (Air conditioning remote control)
+
+// blynk virtual PINS
+const uint8_t BLYNK_REALTIME_DUST_PIN = V8;
+const uint8_t BLYNK_DUST_1M_AVG_PIN = V9;
+
+const uint32_t TEMP_READING_INTERVAL = 20010;    // ~20s
+const float TEMP_CALIBRATION_FACTOR = 0.982;  // calibrate against known precise thermometer
+const float HUMIDITY_CALIBRATION_FACTOR = 1;  // calibrate against known precise hygrometer
+const uint32_t VOC_READING_INTERVAL = 10000;     // 10s
+const uint32_t DUST_READING_TNTERVAL = 1100;     // 1.1s
+const uint32_t DISPLAY_CHANGE_INTERVAL = 10001;  // ~10s
+
+// average sampling - average resets every minute (1s freq * 60 samples)
+const int vocRunningAverageCount = 60000 / VOC_READING_INTERVAL;   
+const int dustRunningAverageCount = 60000 / DUST_READING_TNTERVAL;
