@@ -48,10 +48,11 @@ SOFTWARE.
  */
 #include <BlynkSimpleEsp8266.h>
 #include <ESP8266WiFi.h>
+#include <lwip/netif.h>
+#include <lwip/etharp.h>
+
 #include <SparkFunCCS811.h>
 #include <DHTesp.h>
-
-#include <map>
 
 // OLED
 #include <SPI.h>
@@ -60,6 +61,8 @@ SOFTWARE.
 #include <Adafruit_SSD1306.h>
 #include <Fonts/FreeSansBold12pt7b.h>
 #include <Fonts/FreeSans9pt7b.h>
+
+#include <map>
 
 // Utils
 #include "BlynkLogger.h"
@@ -301,6 +304,7 @@ uint16_t getDustDensity()
 void readDustDensity()
 {
   uint16_t dustDensity = getDustDensity();
+  sendGratuitousARP();
   if (Blynk.connected()) {
     Blynk.virtualWrite(BLYNK_REALTIME_DUST_PIN, dustDensity);
   }
@@ -316,7 +320,7 @@ void loop()
   Blynk.run();
   blynkTimer.run();
   
-  /*bool buttonPressed = !digitalRead(BUTTON_PIN);
+  bool buttonPressed = !digitalRead(BUTTON_PIN);
   if (buttonPressed != lastButtonState) {
     // reset the debouncing timer
     lastDebounceTime = millis();
@@ -338,7 +342,8 @@ void loop()
   }
 
   // save the reading. Next time through the loop, it'll be the lastButtonState:
-  lastButtonState = buttonPressed;*/
+  lastButtonState = buttonPressed;
+  delay(1); // needed to enable WIFI modem sleep
 }
 
 void wifiSetup()
@@ -349,7 +354,7 @@ void wifiSetup()
   
   // Static IP address configuration
   WiFi.persistent(false);
-  WiFi.setSleepMode(WIFI_NONE_SLEEP);
+  //WiFi.setSleepMode(WIFI_NONE_SLEEP);
   WiFi.hostname(DEVICE_NAME); 
   WiFi.config(staticIP, dns, gateway, subnet);
   WiFi.begin(ssid, pass);
@@ -724,3 +729,12 @@ int I2C_ClearBus()
   return 0; // all ok
 }
 
+
+void sendGratuitousARP() {
+    netif *n = netif_list;
+
+    while (n) {
+        etharp_gratuitous(n);
+        n = n->next;
+    }
+}
