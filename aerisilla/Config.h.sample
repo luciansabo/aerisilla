@@ -37,11 +37,12 @@ const char* COLOR_GREY = "#cccccc";
 // pins
 const uint8_t DHT_PIN = 10;            // DHT22 temperature sensor Data pin
 const uint8_t INDICATOR_LED_PIN = 15;  // Led indicator output pin
+const float NO_DUST_VOLTAGE = 0.6;     // voltage at no dust
 const uint8_t SHARP_LED_PIN = 14;      // Sharp Dust/particle sensor Led Pin
 const uint8_t SHARP_VO_PIN = A0;       // Sharp Dust/particle analog out pin used for reading 
 const uint8_t BUTTON_PIN = 12;         // front button input pin
-const uint8_t DOUT1_PIN = 13;          // digital output 1 (lights relay)
-const uint8_t DOUT2_PIN = 16;          // digital output 2 (Air conditioning remote control)
+const uint8_t DOUT1_PIN = 13;          // digital output 1 (ex: lights relay, mosfet, transistor)
+const uint8_t DOUT2_PIN = 16;          // digital output 2 (ex: Air conditioning remote control IR led)
 
 // blynk virtual PINS
 const uint8_t BLYNK_REALTIME_DUST_PIN = V8;
