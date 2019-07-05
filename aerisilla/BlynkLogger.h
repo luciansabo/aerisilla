@@ -12,6 +12,7 @@ class BlynkLogger
 {
     protected:
         WidgetTerminal* terminal;
+        char logBuffer[1024];
         LogLevel serialLogLevel = LogLevel::DEBUG;
         LogLevel blynklLogLevel = LogLevel::INFO; 
         void _log(char *message, LogLevel level);
@@ -74,9 +75,24 @@ void BlynkLogger::_log(char *message, LogLevel level)
     if (serialLogLevel >= level) {
         Serial.println(message);
     }
-     
-    if (blynklLogLevel >= level && Blynk.connected()) {
-        terminal->println(message);
+
+    if (blynklLogLevel >= level && Blynk.connected() && strlen(logBuffer)) {
+        terminal->println(logBuffer);
         terminal->flush();
+        strcpy(logBuffer, "");
     }
+
+    if (strlen(logBuffer) + strlen(message) > sizeof(logBuffer)) {
+        strcpy(logBuffer, "");
+    }
+
+     
+    if (blynklLogLevel >= level) {
+        if (Blynk.connected()) {
+            terminal->println(message);
+            terminal->flush();
+        } else 
+            strcat(logBuffer, message);{
+        }
+    } 
 }
