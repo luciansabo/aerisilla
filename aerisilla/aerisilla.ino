@@ -5,7 +5,8 @@
  * Main parts:
  * 
  *  • ESP8266 based MCU like NodeMCU
- *  • CCS811 VOC Sensor from Sparkfun (Adafruit sells one too and should be compatible with the code)
+ *  • CCS811 VOC Sensfile:///home/luci/projects/electronics/aerisilla/aerisilla/BlynkLogger.h
+or from Sparkfun (Adafruit sells one too and should be compatible with the code)
  *  • Sharp GP2Y1014AU0F Dust Sensor
  *  • DHT22 Temperature and Humidity Sensor
  *  • 128x32 SSD1306 OLED screen
@@ -52,6 +53,7 @@ SOFTWARE.
 #include <lwip/etharp.h>
 
 #include <SparkFunCCS811.h>
+#include <GP2YDustSensor.h>
 #include <DHTesp.h>
 
 // OLED
@@ -74,6 +76,7 @@ SOFTWARE.
 #define SSD1306_I2C_ADDRESS 0x3C
 
 CCS811 vocSensor(CCS811_ADDR);
+GP2YDustSensor dustSensor(GP2YDustSensorType::GP2Y1010AU0F, SHARP_LED_PIN, SHARP_VO_PIN);
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 32 // OLED display height, in pixels
@@ -105,8 +108,8 @@ float temperature;
 float humidity;
 float heatIndex;
 
-int vocRunningAverageBuffer[vocRunningAverageCount], dustRunningAverageBuffer[dustRunningAverageCount];
-int nextVocRunningAverageCounter, nextDustRunningAverageCounter;
+int vocRunningAverageBuffer[vocRunningAverageCount];
+int nextVocRunningAverageCounter;
 uint16_t dustAverage, co2Average;
 bool isVOCSensorReady = false;
 
@@ -203,10 +206,11 @@ void setup()
   pinMode(INDICATOR_LED_PIN, OUTPUT);
   digitalWrite(INDICATOR_LED_PIN, HIGH);
   pinMode(DHT_PIN, INPUT_PULLUP);
-  pinMode(SHARP_LED_PIN, OUTPUT);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   // Initialize temperature sensor
   dht.setup(DHT_PIN, DHTesp::DHT22);
+  dustSensor.setBaseline(NO_DUST_VOLTAGE);
+  dustSensor.begin();
   
   wifiSetup();
   blynkSetup();
@@ -238,78 +242,16 @@ void displayHandler()
   }
 }
 
-int readDustRawOnce()
-{
-  // Turn on the dust sensor LED by setting digital pin LOW.
-  digitalWrite(SHARP_LED_PIN, LOW);
 
-  // Wait 0.28ms before taking a reading of the output voltage as per spec.
-  delayMicroseconds(280);
-
-  // Record the output voltage. This operation takes around 100 microseconds.
-  uint16_t VoRaw = analogRead(SHARP_VO_PIN);
-  
-  // Turn the dust sensor LED off by setting digital pin HIGH.
-  digitalWrite(SHARP_LED_PIN, HIGH);
-
-  return VoRaw;
-}
-
-uint16_t getDustDensity()
-{
-  uint8_t numSamples = 20;
-  uint32_t total = 0;
-  uint16_t avgRaw;
-  const float sensitivity = 0.5;
-  const float zeroDustVoltage = 0.34; // adjust according to your output (typical is 0.6)
-  
-  for (uint8_t i = 0; i < numSamples; i++) {
-    total += readDustRawOnce();
-    // Wait for remainder of the 10ms cycle = 10000 - 280 - 100 microseconds.
-    delayMicroseconds(9620);
-  }
-
-  avgRaw = total / numSamples;
-  sprintf(logBuffer, "Averaged Raw: %d", avgRaw);
-  //blynkLogger.debug(logBuffer);
-
-  // we scale up the read ADC voltage to the sensor's 5V output range
-  // so we can interpret the results based on voltage
-
-  float scaledVoltage = avgRaw * (5.0 / 1024);
-  
-  //sprintf(logBuffer, "Scaled Voltage: %.2f", scaledVoltage);
-  //blynkLogger.debug(logBuffer);
-  
-  uint16_t dustDensity;
-  
-  if (scaledVoltage < zeroDustVoltage) {
-    dustDensity = 0;
-  } else {
-    // taken from the graph, at 0.4mg dust density we should have 3.05 volts
-    // 3.05v ................ 0.4
-    // scaledVoltage ........ ?
-    // ? = scaledVoltage * 0.4 / 3.05
-    // We will try to be smarter and adjust the graph
-    // according to the zero dust voltage offset and sensitivity
-    // typical zero dust is 0.6V but I observed 0.4V on my sensor
-    // sensor sensitivy is 0.5V according to the datasheet
-    // dustDensity is expressed in ug/m3
-    dustDensity = (scaledVoltage - zeroDustVoltage) / sensitivity * 100;
-  }
-
-  return dustDensity;
-}
 
 void readDustDensity()
 {
-  uint16_t dustDensity = getDustDensity();
+  uint16_t dustDensity = dustSensor.getDustDensity();
   sendGratuitousARP();
   if (Blynk.connected()) {
     Blynk.virtualWrite(BLYNK_REALTIME_DUST_PIN, dustDensity);
   }
   
-  updateDustRunningAverage(dustDensity);
   sprintf(logBuffer, "Dust Density: %d ug/m3", dustDensity);
   blynkLogger.debug(logBuffer);
 }
@@ -424,12 +366,14 @@ void wifiWatchdog()
   if (WiFi.status() != WL_CONNECTED)  
   {
     if (wifiErrors > MAX_WIFI_ERRORS_UNTIL_RESTART) {
-      blynkLogger.error("wifiWatchdog(): Could not restore WiFi after many tries. Restarting device...");
-      ESP.restart();
+      blynkLogger.error("wifiWatchdog(): Could not restore WiFi after many tries. Restarting WiFi...");
+      WiFi.disconnect();
+      WiFi.mode(WIFI_OFF);
+      delay(100);
     }
     
     blynkLogger.error("wifiWatchdog(): No WiFi. Reconnecting...");
-    WiFi.reconnect();
+    wifiSetup();
     yield;
   }
 
@@ -483,14 +427,6 @@ void updateCO2RunningAverage(int value)
   }
 }
 
-void updateDustRunningAverage(int value)
-{
-  dustRunningAverageBuffer[nextDustRunningAverageCounter++] = value;
-  if (nextDustRunningAverageCounter >= dustRunningAverageCount)
-  {
-    nextDustRunningAverageCounter = 0; 
-  }
-}
 
 int getCO2RunningAverage()
 {
@@ -501,18 +437,6 @@ int getCO2RunningAverage()
   }
   
   runningAverage /= vocRunningAverageCount;
-  return round(runningAverage);
-}
-
-int getDustRunningAverage()
-{
-  float runningAverage = 0;
-  for(int i = 0; i < dustRunningAverageCount; ++i)
-  {
-    runningAverage += dustRunningAverageBuffer[i];
-  }
-  
-  runningAverage /= dustRunningAverageCount;
   return round(runningAverage);
 }
 
@@ -561,18 +485,22 @@ void minuteCron()
 
 void vocAverages()
 { 
-  strcpy(vocStatusBuffer, "Initializare");
+  strcpy(vocStatusBuffer, "Init VOC.");
   co2Average = getCO2RunningAverage();
   
   sprintf(logBuffer, "1m Avg eCO2 level: %d ppm", co2Average);
   blynkLogger.debug(logBuffer);
 
   if (co2Average > 5000) {
-    strcpy(vocStatusBuffer, "Aer toxic. Aeriseste acum !");
+    strcpy(vocStatusBuffer, "VOC L5.");
+  } if (co2Average > 3500) {
+    strcpy(vocStatusBuffer, "VOC L4.");
   } else if (co2Average > 2000) {
-    strcpy(vocStatusBuffer, "Aer poluat. Aeriseste de indata !");
+    strcpy(vocStatusBuffer, "VOC L3.");
   } else if (co2Average > 1000) {
-    strcpy(vocStatusBuffer, "Aer statut. Aeriseste cat mai curand");
+    strcpy(vocStatusBuffer, "VOC L2.");
+  } else if (co2Average > 600) {
+    strcpy(vocStatusBuffer, "VOC L1.");
   } else if (isVOCSensorReady) {
     strcpy(vocStatusBuffer, "");
   }
@@ -585,17 +513,21 @@ void vocAverages()
 
 void dustAverages()
 { 
-  dustAverage = getDustRunningAverage();
+  dustAverage = dustSensor.getRunningAverage();
   
   sprintf(logBuffer, "1m Avg Dust Density: %d ug/m3", dustAverage);
   blynkLogger.debug(logBuffer);
 
-  if (dustAverage > 100) {
-    strcpy(dustStatusBuffer, "Mult praf. Posibil < PM10. Aeriseste acum !");
+  if (dustAverage > 200) {
+    strcpy(dustStatusBuffer, "Dust L5.");
+  } else if (dustAverage > 100) {
+    strcpy(dustStatusBuffer, "Dust L4.");
   } else if (dustAverage > 50) {;
-    strcpy(dustStatusBuffer, "Alerta Praf. Aeriseste de indata !");
+    strcpy(dustStatusBuffer, "Dust L3.");
+  } else if (dustAverage > 25) {
+    strcpy(dustStatusBuffer, "Dust L2.");
   } else if (dustAverage > 10) {
-    strcpy(dustStatusBuffer, "Praf. Aeriseste cat mai curand");
+    strcpy(dustStatusBuffer, "Dust L1.");
   } else {
     strcpy(dustStatusBuffer, "");
   }
@@ -619,7 +551,7 @@ void sendStatusToBlynk()
   }
 
   if (!strlen(statusBuffer)) {
-    strcpy(statusBuffer, "Aer curat.");
+    strcpy(statusBuffer, "Clean air.");
   }
 
   
