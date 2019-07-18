@@ -76,7 +76,7 @@ SOFTWARE.
 #define SSD1306_I2C_ADDRESS 0x3C
 
 CCS811 vocSensor(CCS811_ADDR);
-GP2YDustSensor dustSensor(GP2YDustSensorType::GP2Y1010AU0F, SHARP_LED_PIN, SHARP_VO_PIN);
+GP2YDustSensor dustSensor(GP2YDustSensorType::GP2Y1014AU0F, SHARP_LED_PIN, SHARP_VO_PIN);
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 32 // OLED display height, in pixels
@@ -108,8 +108,8 @@ float temperature;
 float humidity;
 float heatIndex;
 
-int vocRunningAverageBuffer[vocRunningAverageCount];
-int nextVocRunningAverageCounter;
+int16_t co2RunningAverageBuffer[co2RunningAverageCount];
+uint16_t nextCO2RunningAverageCounter = 0;
 uint16_t dustAverage, co2Average;
 bool isVOCSensorReady = false;
 
@@ -118,7 +118,9 @@ BlynkTimer blynkTimer;
 WidgetTerminal terminal(V7);
 BlynkLogger blynkLogger(&terminal);
 
-uint8_t wifiErrors = 0;
+uint16_t wifiErrors = 0;
+uint16_t blynkErrors = 0;
+uint16_t blynkRestoreFailedAttempts = 0;
 
 // --- debounce
 int buttonState;             // the current reading from the input pin
@@ -188,6 +190,8 @@ void setup()
   if (returnCode != CCS811Core::SENSOR_SUCCESS) {
     sprintf(errorBuffer, "vocSensor.begin() returned with an error: %d", returnCode);
   } else {
+    // set drive mode
+    // mode 1: 1s (default), mode2: 10s mode3: 60s
     vocSensor.setDriveMode(2);
   }
 
@@ -203,13 +207,16 @@ void setup()
   screenMap[2] = indoorTemperatureScreen;
   screenMap[3] = logoScreen;
 
+  for (uint16_t i = 0; i < co2RunningAverageCount; i++) {
+    co2RunningAverageBuffer[i] = -1;
+  }
+
   pinMode(INDICATOR_LED_PIN, OUTPUT);
   digitalWrite(INDICATOR_LED_PIN, HIGH);
   pinMode(DHT_PIN, INPUT_PULLUP);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   // Initialize temperature sensor
   dht.setup(DHT_PIN, DHTesp::DHT22);
-  dustSensor.setBaseline(NO_DUST_VOLTAGE);
   dustSensor.begin();
   
   wifiSetup();
@@ -247,6 +254,7 @@ void displayHandler()
 void readDustDensity()
 {
   uint16_t dustDensity = dustSensor.getDustDensity();
+  
   sendGratuitousARP();
   if (Blynk.connected()) {
     Blynk.virtualWrite(BLYNK_REALTIME_DUST_PIN, dustDensity);
@@ -337,49 +345,70 @@ void blynkWatchdog()
     blynkLogger.error("blynkWatchdog(): No WiFi.");
     return;
   }
-  bool wasConnectionRestored = false;
+  bool triedToRestoreConnection = false;
 
   if (!Blynk.connected()) {
     blynkLogger.error("blynkWatchdog(): Blynk not connected.");
+
+    if (blynkErrors > MAX_BLYNK_ERRORS_UNTIL_WIFI_RESTART) {
+      blynkLogger.error("wifiWatchdog(): Could not restore Blynk after many tries. Restarting WiFi...");
+      wifiRestart();
+    }
   
     Blynk.connect(BLYNK_SERVER_TIMEOUT);
 
-    wasConnectionRestored = true;
+    triedToRestoreConnection = true;
   }
 
   if (Blynk.connected()) {
-     if (wasConnectionRestored) {
+     blynkErrors = blynkRestoreFailedAttempts = 0;
+     if (triedToRestoreConnection) {
        blynkLogger.info("blynkWatchdog(): Blynk is back on.");
      } else {
        blynkLogger.debug("blynkWatchdog(): ok.");
      }
   } else {
     blynkLogger.notice("blynkWatchdog(): Blynk is still offline.");
+    blynkErrors++;
+
+    if (triedToRestoreConnection) {
+      blynkRestoreFailedAttempts++;
+    }
+
+    IPAddress checkedIp;
+    if (blynkRestoreFailedAttempts > MAX_BLYNK_ERRORS_UNTIL_DEVICE_RESTART && !WiFi.hostByName(WIFI_TEST_DOMAIN, checkedIp)) {
+        blynkLogger.error("wifiWatchdog(): Could not restore Blynk because no internet access. Restarting device");
+        ESP.restart();
+        return;
+    }
+
   }
+}
+
+void wifiRestart()
+{
+  WiFi.disconnect();
+  WiFi.mode(WIFI_OFF);
+  delay(1000);
+  wifiSetup();
 }
 
 void wifiWatchdog()
 {
   blynkLogger.debug("wifiWatchdog(): awake.");
 
-  bool wasConnectionRestored = false;
+  bool triedToRestoreConnection = false;
   if (WiFi.status() != WL_CONNECTED)  
   {
     if (wifiErrors > MAX_WIFI_ERRORS_UNTIL_RESTART) {
       blynkLogger.error("wifiWatchdog(): Could not restore WiFi after many tries. Restarting WiFi...");
-      WiFi.disconnect();
-      WiFi.mode(WIFI_OFF);
-      delay(100);
+      wifiRestart();
     }
-    
-    blynkLogger.error("wifiWatchdog(): No WiFi. Reconnecting...");
-    wifiSetup();
-    yield;
   }
 
   if (WiFi.status() == WL_CONNECTED) {
     wifiErrors = 0;
-    if (wasConnectionRestored) {
+    if (triedToRestoreConnection) {
       blynkLogger.info("wifiWatchdog(): WiFI connection restored.");
     } else {
       blynkLogger.debug("wifiWatchdog(): ok.");
@@ -420,23 +449,33 @@ void readTempAndHumidity()
 
 void updateCO2RunningAverage(int value)
 {
-  vocRunningAverageBuffer[nextVocRunningAverageCounter++] = value;
-  if (nextVocRunningAverageCounter >= vocRunningAverageCount)
-  {
-    nextVocRunningAverageCounter = 0; 
+  co2RunningAverageBuffer[nextCO2RunningAverageCounter] = value;
+  
+  nextCO2RunningAverageCounter++;
+  if (nextCO2RunningAverageCounter >= co2RunningAverageCount) {
+    nextCO2RunningAverageCounter = 0; 
   }
 }
 
 
-int getCO2RunningAverage()
+uint16_t getCO2RunningAverage()
 {
   float runningAverage = 0;
-  for(int i = 0; i < vocRunningAverageCount; ++i)
-  {
-    runningAverage += vocRunningAverageBuffer[i];
+  int sampleCount = 0;
+  
+  for (uint16_t i = 0; i < co2RunningAverageCount; ++i) {
+    if (co2RunningAverageBuffer[i] != -1) {
+      runningAverage += co2RunningAverageBuffer[i];
+      sampleCount++;
+    }
+  }
+
+  if (sampleCount == 0) {
+    return 0;
   }
   
-  runningAverage /= vocRunningAverageCount;
+  runningAverage /= sampleCount;
+  
   return round(runningAverage);
 }
 
@@ -445,7 +484,7 @@ void readVoc()
   uint8_t error;
   if ((error = vocSensor.getErrorRegister()) != CCS811Core::SENSOR_SUCCESS) {
     blynkLogger.error("readVoc(): I2C error. Recovering...");
-    if (I2C_ClearBus() == 0) {
+    if (clearI2CBus() == 0) {
       Wire.begin();
     }
 
@@ -455,6 +494,10 @@ void readVoc()
   // return early if VOC sensor is not prepared
   // 20 min * 60s * 1000ms = 1200000ms
   if (millis() < 1200000) {
+    if (Blynk.connected()) {
+      Blynk.virtualWrite(BLYNK_REALTIME_VOC_PIN, 0);
+      Blynk.virtualWrite(BLYNK_REALTIME_ECO2_PIN, 0);
+    }
     return;
   } else if (!isVOCSensorReady) {
     blynkLogger.info("readVoc(): VOC Sensor ready");
@@ -465,15 +508,15 @@ void readVoc()
   
   if (vocSensor.dataAvailable()) {
     vocSensor.readAlgorithmResults();
-      updateCO2RunningAverage(vocSensor.getCO2());
+    updateCO2RunningAverage(vocSensor.getCO2());
 
-      sprintf(logBuffer, "tVOC(): %d; eCO2: %d", vocSensor.getTVOC(), vocSensor.getCO2());
-      blynkLogger.debug(logBuffer);
+    sprintf(logBuffer, "tVOC(): %d; eCO2: %d", vocSensor.getTVOC(), vocSensor.getCO2());
+    blynkLogger.debug(logBuffer);
 
-      if (Blynk.connected()) {
-        Blynk.virtualWrite(5, vocSensor.getTVOC());
-        Blynk.virtualWrite(6, vocSensor.getCO2());
-      }
+    if (Blynk.connected()) {
+      Blynk.virtualWrite(BLYNK_REALTIME_VOC_PIN, vocSensor.getTVOC());
+      Blynk.virtualWrite(BLYNK_REALTIME_ECO2_PIN, vocSensor.getCO2());
+    }
   }
 }
 
@@ -481,6 +524,7 @@ void minuteCron()
 {
   vocAverages();
   dustAverages();
+  sendStatusToBlynk();
 }
 
 void vocAverages()
@@ -492,49 +536,45 @@ void vocAverages()
   blynkLogger.debug(logBuffer);
 
   if (co2Average > 5000) {
-    strcpy(vocStatusBuffer, "VOC L5.");
-  } if (co2Average > 3500) {
-    strcpy(vocStatusBuffer, "VOC L4.");
+    strcpy(vocStatusBuffer, "VOC L3/3.");
   } else if (co2Average > 2000) {
-    strcpy(vocStatusBuffer, "VOC L3.");
+    strcpy(vocStatusBuffer, "VOC L2/3.");
   } else if (co2Average > 1000) {
-    strcpy(vocStatusBuffer, "VOC L2.");
-  } else if (co2Average > 600) {
-    strcpy(vocStatusBuffer, "VOC L1.");
+    strcpy(vocStatusBuffer, "VOC L1/3.");
   } else if (isVOCSensorReady) {
     strcpy(vocStatusBuffer, "");
   }
 
   if (Blynk.connected()) {
-    Blynk.virtualWrite(3, co2Average);
-    sendStatusToBlynk();
+    Blynk.virtualWrite(BLYNK_ECO2_AVG_PIN, co2Average);
   }
 }
 
 void dustAverages()
 { 
   dustAverage = dustSensor.getRunningAverage();
+  float newBaseline = dustSensor.getBaselineCandidate();
+  dustSensor.setBaseline(newBaseline);
   
-  sprintf(logBuffer, "1m Avg Dust Density: %d ug/m3", dustAverage);
+  sprintf(logBuffer, "1m Avg Dust Density: %d ug/m3; New baseline: %.4f", dustAverage, newBaseline);
   blynkLogger.debug(logBuffer);
 
   if (dustAverage > 200) {
-    strcpy(dustStatusBuffer, "Dust L5.");
+    strcpy(dustStatusBuffer, "Dust L5/5.");
   } else if (dustAverage > 100) {
-    strcpy(dustStatusBuffer, "Dust L4.");
+    strcpy(dustStatusBuffer, "Dust L4/5.");
   } else if (dustAverage > 50) {;
-    strcpy(dustStatusBuffer, "Dust L3.");
+    strcpy(dustStatusBuffer, "Dust L3/5.");
   } else if (dustAverage > 25) {
-    strcpy(dustStatusBuffer, "Dust L2.");
+    strcpy(dustStatusBuffer, "Dust L2/5.");
   } else if (dustAverage > 10) {
-    strcpy(dustStatusBuffer, "Dust L1.");
+    strcpy(dustStatusBuffer, "Dust L1/5.");
   } else {
     strcpy(dustStatusBuffer, "");
   }
 
   if (Blynk.connected()) {
     Blynk.virtualWrite(BLYNK_DUST_1M_AVG_PIN, dustAverage);
-    sendStatusToBlynk();
   }
 }
 
@@ -554,8 +594,9 @@ void sendStatusToBlynk()
     strcpy(statusBuffer, "Clean air.");
   }
 
-  
-  Blynk.virtualWrite(4, statusBuffer);
+  if (Blynk.connected()) {
+    Blynk.virtualWrite(BLYNK_STATUS_TEXT_PIN, statusBuffer);
+  }
 }
 
 /**
@@ -592,7 +633,7 @@ void sendStatusToBlynk()
  * Adapted from:
  * http://www.forward.com.au/pfod/ArduinoProgramming/I2C_ClearBus/I2C_ClearBus.ino.txt
  */
-int I2C_ClearBus()
+int clearI2CBus()
 {
 #if defined(TWCR) && defined(TWEN)
   TWCR &= ~(_BV(TWEN)); //Disable the Atmel 2-Wire interface so we can control the SDA and SCL pins directly
