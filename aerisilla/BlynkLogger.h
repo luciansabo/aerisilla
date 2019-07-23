@@ -91,8 +91,9 @@ void BlynkLogger::_log(char *message, LogLevel level)
         if (Blynk.connected()) {
             terminal->println(message);
             terminal->flush();
-        } else 
-            strcat(logBuffer, message);{
+        } else {
+            strcat(logBuffer, message);
+            strcat(logBuffer, "\n");
         }
     } 
 }

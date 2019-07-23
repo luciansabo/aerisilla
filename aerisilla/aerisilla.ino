@@ -76,7 +76,7 @@ SOFTWARE.
 #define SSD1306_I2C_ADDRESS 0x3C
 
 CCS811 vocSensor(CCS811_ADDR);
-GP2YDustSensor dustSensor(GP2YDustSensorType::GP2Y1014AU0F, SHARP_LED_PIN, SHARP_VO_PIN);
+GP2YDustSensor dustSensor(GP2YDustSensorType::GP2Y1014AU0F, SHARP_LED_PIN, SHARP_VO_PIN, dustRunningAverageCount);
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 32 // OLED display height, in pixels
@@ -88,6 +88,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 // Comment this out to disable prints and save space
 #define BLYNK_PRINT Serial
 #define BLYNK_HEARTBEAT      30 // heartbeat every 30s
+#define BLYNK_MAX_SENDBYTES 1200
 
 enum statuses {
   STATUS_OK,
