@@ -147,7 +147,7 @@ void logoScreen()
 void indoorTemperatureScreen()
 {
   display.setCursor(10, 15);
-  sprintf(displayBuffer, "%.1f *C   %.0f%%", temperature, humidity);
+  sprintf(displayBuffer, "%.1f *C   %.1f%%", temperature, humidity);
   display.print(displayBuffer);
   display.display();
 }
@@ -193,7 +193,7 @@ void setup()
   } else {
     // set drive mode
     // mode 1: 1s (default), mode2: 10s mode3: 60s
-    vocSensor.setDriveMode(2);
+    vocSensor.setDriveMode(1);
   }
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, SSD1306_I2C_ADDRESS)) { // Address 0x3C for 128x32
@@ -265,7 +265,6 @@ void readDustDensity()
   blynkLogger.debug(logBuffer);
 }
 
-
 void loop()
 {
   Blynk.run();
@@ -294,7 +293,6 @@ void loop()
 
   // save the reading. Next time through the loop, it'll be the lastButtonState:
   lastButtonState = buttonPressed;
-  delay(1); // needed to enable WIFI modem sleep
 }
 
 void wifiSetup()
@@ -309,7 +307,11 @@ void wifiSetup()
   WiFi.hostname(DEVICE_NAME); 
   WiFi.config(staticIP, dns, gateway, subnet);
   WiFi.begin(ssid, pass);
-  
+  wifiWaitForConnection();
+}
+
+void wifiWaitForConnection()
+{
   int startMillis = millis();
   
   while (WiFi.status() != WL_CONNECTED) {
@@ -328,7 +330,6 @@ void wifiSetup()
   } else {
     blynkLogger.debug("wifiSetup(): Wifi connected.");
   }
-  yield;
 }
 
 void blynkSetup()
@@ -401,20 +402,15 @@ void wifiWatchdog()
   bool triedToRestoreConnection = false;
   if (WiFi.status() != WL_CONNECTED)  
   {
+    WiFi.reconnect();
+    wifiWaitForConnection();
     if (wifiErrors > MAX_WIFI_ERRORS_UNTIL_RESTART) {
       blynkLogger.error("wifiWatchdog(): Could not restore WiFi after many tries. Restarting WiFi...");
       wifiRestart();
     }
   }
 
-  if (WiFi.status() == WL_CONNECTED) {
-    wifiErrors = 0;
-    if (triedToRestoreConnection) {
-      blynkLogger.info("wifiWatchdog(): WiFI connection restored.");
-    } else {
-      blynkLogger.debug("wifiWatchdog(): ok.");
-    }
-  } else {
+  if (WiFi.status() != WL_CONNECTED) {
     wifiErrors++;
     blynkLogger.notice("wifiWatchdog(): WiFI is still disconnected.");
   }
@@ -433,7 +429,7 @@ void readTempAndHumidity()
   
   sprintf(
     logBuffer, 
-    "T: %.1f °C H: %.0f%% I: %.1f °C",
+    "T: %.1f °C H: %.1f%% I: %.1f °C",
     temperature,
     humidity,
     heatIndex
@@ -443,8 +439,8 @@ void readTempAndHumidity()
 
   if (Blynk.connected()) {
     Blynk.virtualWrite(0, round(temperature * 10) / 10.0); // round to one decimal
-    Blynk.virtualWrite(1, round(humidity));
-    Blynk.virtualWrite(2, round(heatIndex * 10) / 10.0);
+    Blynk.virtualWrite(1, round(humidity * 10) / 10.0); // round to one decimal
+    Blynk.virtualWrite(2, round(heatIndex * 10) / 10.0); // round to one decimal
   }
 }
 

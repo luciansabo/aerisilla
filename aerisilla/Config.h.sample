@@ -30,7 +30,7 @@ const unsigned int BLYNK_CHECK_INTERVAL = 60000;   // 60s check Blynk server con
 // at 60s check frequency ESP will restart in 60m if WIFI is stil disconnected;
 const uint16_t MAX_BLYNK_ERRORS_UNTIL_WIFI_RESTART = 60;
 // as a last resort, device will be restarted
-const uint16_t MAX_BLYNK_ERRORS_UNTIL_DEVICE_RESTART = 3;
+const uint16_t MAX_BLYNK_ERRORS_UNTIL_DEVICE_RESTART = 60;
 
 // used for Blynk LED indicator
 const char* COLOR_GREEN = "#00cc00";
@@ -60,7 +60,7 @@ const uint8_t BLYNK_DUST_1M_AVG_PIN = V9;
 const uint32_t TEMP_READING_INTERVAL = 15010;    // ~15s
 const float TEMP_CALIBRATION_FACTOR = 0.982;  // calibrate against known precise thermometer
 const float HUMIDITY_CALIBRATION_FACTOR = 1;  // calibrate against known precise thermometer
-const uint32_t VOC_READING_INTERVAL = 5000;     // 4s
+const uint32_t VOC_READING_INTERVAL = 1000;     // 1s
 const uint32_t DUST_READING_TNTERVAL = 4002;     // ~4s
 const uint32_t DISPLAY_CHANGE_INTERVAL = 10001;  // ~10s
 
