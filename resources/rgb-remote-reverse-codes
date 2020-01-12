@@ -1,0 +1,53 @@
+Codes figured out so far:
+
+// Red: R5C1 - 0xFF02FD
+    // Red R6C1 - 0xFF38C7
+    // Red R2C2 - 0xFF9867
+    // Red R3C1 - 0xFFE817
+    // Green R6C2 - 0xFF32CD, 0xFF28D7
+    // Green R5C2 - 0xFF7887
+    // Blue R2C3 - 0xFF6897
+    // Dim - 0xFFB847
+    // White - 0xFFB24D
+    // Off - 0xFFF807
+    // Fade - 0xFF58A7 
+
+TODO: Map these codes too
+
+      //if (Serial.available() > 0) {
+    // read the incoming byte:
+    //char command = Serial.read();  
+      
+      /*irsend.sendNEC(0xFFA857);
+      delay(2000);
+      irsend.sendNEC(0xFFD827);
+      delay(2000);
+      irsend.sendNEC(0xFF18E7);
+      delay(2000);
+      irsend.sendNEC(0xFF48B7);
+      delay(2000);
+      irsend.sendNEC(0xFFC837);
+      delay(2000);
+      irsend.sendNEC(0xFF30CF);
+      delay(2000);
+      irsend.sendNEC(0xFF8877);
+      
+      irsend.sendNEC(0xFF708F);
+      delay(2000);
+      irsend.sendNEC(0xFFF00F);
+      delay(2000);
+      irsend.sendNEC(0xFF10EF);
+      delay(2000);
+      irsend.sendNEC(0xFF906F);
+      delay(2000);
+      irsend.sendNEC(0xFF50AF);
+      delay(2000);
+      irsend.sendNEC(0xFFD02F);
+      delay(2000);
+      irsend.sendNEC(0xFF20DF);
+      delay(2000);
+      irsend.sendNEC(0xFFA05F);
+      delay(2000);
+      irsend.sendNEC(0xFF609F);
+      delay(2000);
+      irsend.sendNEC(0xFFE01F);*/

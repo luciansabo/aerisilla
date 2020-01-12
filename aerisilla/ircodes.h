@@ -1,0 +1,2 @@
+#define CODE_ON 0xFFB04F
+#define CODE_OFF 0xFFF807

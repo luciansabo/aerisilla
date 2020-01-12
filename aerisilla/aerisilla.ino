@@ -51,6 +51,7 @@ SOFTWARE.
 #include <ESP8266WiFi.h>
 #include <lwip/netif.h>
 #include <lwip/etharp.h>
+#include <time.h>
 
 #include <SparkFunCCS811.h>
 #include <GP2YDustSensor.h>
@@ -63,13 +64,22 @@ SOFTWARE.
 #include <Adafruit_SSD1306.h>
 #include <Fonts/FreeSansBold12pt7b.h>
 #include <Fonts/FreeSans9pt7b.h>
-
 #include <map>
+
+// IR Led
+#include <IRremoteESP8266.h>
+#include <IRsend.h>
+#include "ircodes.h"
 
 // Utils
 #include "BlynkLogger.h"
 
 #include "Config.h"
+
+IRsend irsend(DOUT1_PIN);
+
+int timezone = 2;
+int dst = 0;
 
 #define CCS811_ADDR 0x5B // Default I2C Address
 //#define CCS811_ADDR 0x5A //Alternate I2C Address
@@ -87,7 +97,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 // Comment this out to disable prints and save space
 #define BLYNK_PRINT Serial
-#define BLYNK_HEARTBEAT      30 // heartbeat every 30s
+#define BLYNK_HEARTBEAT      60 // heartbeat every 30s
 #define BLYNK_MAX_SENDBYTES 1200
 
 enum statuses {
@@ -116,7 +126,7 @@ bool isVOCSensorReady = false;
 
 // the timer object
 BlynkTimer blynkTimer;
-WidgetTerminal terminal(V7);
+WidgetTerminal terminal(BLYNK_TERMINAL_PIN);
 BlynkLogger blynkLogger(&terminal);
 
 uint16_t wifiErrors = 0;
@@ -163,9 +173,9 @@ void vocScreen()
 
 void dustScreen()
 {
-  sprintf(displayBuffer, "Dust %d ug/m3", dustAverage);
-  
-  display.setCursor(10, 15);
+  sprintf(displayBuffer, "D: %d ug/m3", dustAverage);
+
+  display.setCursor(0, 15);
   display.print(displayBuffer);
   display.display();
 }
@@ -175,6 +185,7 @@ typedef void (*ScreenFnPtr)();
 std::map<uint8_t, ScreenFnPtr> screenMap;
 
 uint8_t currentScreenIndex = 0;
+bool lightsOn;
 
 // ---------------------------------------------------
 
@@ -216,12 +227,16 @@ void setup()
   digitalWrite(INDICATOR_LED_PIN, HIGH);
   pinMode(DHT_PIN, INPUT_PULLUP);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
+  irsend.begin();
+  pinMode(DOUT1_PIN, OUTPUT);
+  
   // Initialize temperature sensor
   dht.setup(DHT_PIN, DHTesp::DHT22);
   dustSensor.begin();
   
   wifiSetup();
   blynkSetup();
+  configTime(timezone * 3600, dst ? 3600 : 0, "ro.pool.ntp.org", "pool.ntp.org");
   
   blynkTimer.setInterval(VOC_READING_INTERVAL, readVoc);
   blynkTimer.setInterval(60000, minuteCron);
@@ -256,7 +271,6 @@ void readDustDensity()
 {
   uint16_t dustDensity = dustSensor.getDustDensity();
   
-  sendGratuitousARP();
   if (Blynk.connected()) {
     Blynk.virtualWrite(BLYNK_REALTIME_DUST_PIN, dustDensity);
   }
@@ -267,7 +281,10 @@ void readDustDensity()
 
 void loop()
 {
-  Blynk.run();
+  if (WiFi.status() == WL_CONNECTED) {
+    Blynk.run();
+  }
+  
   blynkTimer.run();
   
   bool buttonPressed = !digitalRead(BUTTON_PIN);
@@ -353,7 +370,7 @@ void blynkWatchdog()
     blynkLogger.error("blynkWatchdog(): Blynk not connected.");
 
     if (blynkErrors > MAX_BLYNK_ERRORS_UNTIL_WIFI_RESTART) {
-      blynkLogger.error("wifiWatchdog(): Could not restore Blynk after many tries. Restarting WiFi...");
+      blynkLogger.error("blynkWatchdog(): Could not restore Blynk after many tries. Restarting WiFi...");
       wifiRestart();
     }
   
@@ -379,7 +396,7 @@ void blynkWatchdog()
 
     IPAddress checkedIp;
     if (blynkRestoreFailedAttempts > MAX_BLYNK_ERRORS_UNTIL_DEVICE_RESTART && !WiFi.hostByName(WIFI_TEST_DOMAIN, checkedIp)) {
-        blynkLogger.error("wifiWatchdog(): Could not restore Blynk because no internet access. Restarting device");
+        blynkLogger.error("blynkWatchdog(): Could not restore Blynk because no internet access. Restarting device");
         ESP.restart();
         return;
     }
@@ -393,6 +410,15 @@ void wifiRestart()
   WiFi.mode(WIFI_OFF);
   delay(1000);
   wifiSetup();
+}
+
+void sendGratuitousARP() {
+    netif *n = netif_list;
+
+    while (n) {
+        etharp_gratuitous(n);
+        n = n->next;
+    }
 }
 
 void wifiWatchdog()
@@ -413,6 +439,8 @@ void wifiWatchdog()
   if (WiFi.status() != WL_CONNECTED) {
     wifiErrors++;
     blynkLogger.notice("wifiWatchdog(): WiFI is still disconnected.");
+  } else {
+    sendGratuitousARP();
   }
 }
 
@@ -438,9 +466,9 @@ void readTempAndHumidity()
   blynkLogger.debug(logBuffer);
 
   if (Blynk.connected()) {
-    Blynk.virtualWrite(0, round(temperature * 10) / 10.0); // round to one decimal
-    Blynk.virtualWrite(1, round(humidity * 10) / 10.0); // round to one decimal
-    Blynk.virtualWrite(2, round(heatIndex * 10) / 10.0); // round to one decimal
+    Blynk.virtualWrite(BLYNK_REALTIME_TEMP_PIN, round(temperature * 10) / 10.0); // round to one decimal
+    Blynk.virtualWrite(BLYNK_REALTIME_HUM_PIN, round(humidity * 10) / 10.0); // round to one decimal
+    Blynk.virtualWrite(BLYNK_REALTIME_HEATINDEX_PIN, round(heatIndex * 10) / 10.0); // round to one decimal
   }
 }
 
@@ -476,8 +504,81 @@ uint16_t getCO2RunningAverage()
   return round(runningAverage);
 }
 
-void readVoc()
+/**
+ * Adapted from:
+ * http://www.forward.com.au/pfod/ArduinoProgramming/I2C_ClearBus/I2C_ClearBus.ino.txt
+ */
+int clearI2CBus()
 {
+#if defined(TWCR) && defined(TWEN)
+  TWCR &= ~(_BV(TWEN)); //Disable the Atmel 2-Wire interface so we can control the SDA and SCL pins directly
+#endif
+  pinMode(SDA, INPUT_PULLUP); // Make SDA (data) and SCL (clock) pins Inputs with pullup.
+  pinMode(SCL, INPUT_PULLUP);
+
+  //delay(2500);  // Wait 2.5 secs. This is strictly only necessary on the first power
+  // up of the DS3231 module to allow it to initialize properly,
+  // but is also assists in reliable programming of FioV3 boards as it gives the
+  // IDE a chance to start uploaded the program
+  // before existing sketch confuses the IDE by sending Serial data.
+
+  boolean SCL_LOW = (digitalRead(SCL) == LOW); // Check if SCL is Low.
+  if (SCL_LOW) { //If it is held low Arduno cannot become the I2C master. 
+    blynkLogger.error("I2C_ClearBus(): Could not clear. SCL clock line held low");
+    return 1; //I2C bus error. Could not clear SCL clock line held low
+  }
+
+  boolean SDA_LOW = (digitalRead(SDA) == LOW);  // vi. Check SDA input.
+  int clockCount = 20; // > 2x9 clock
+
+  while (SDA_LOW && (clockCount > 0)) { //  vii. If SDA is Low,
+    clockCount--;
+    // Note: I2C bus is open collector so do NOT drive SCL or SDA high.
+    pinMode(SCL, INPUT); // release SCL pullup so that when made output it will be LOW
+    pinMode(SCL, OUTPUT); // then clock SCL Low
+    delayMicroseconds(10); //  for >5uS
+    pinMode(SCL, INPUT); // release SCL LOW
+    pinMode(SCL, INPUT_PULLUP); // turn on pullup resistors again
+    // do not force high as slave may be holding it low for clock stretching.
+    delayMicroseconds(10); //  for >5uS
+    // The >5uS is so that even the slowest I2C devices are handled.
+    SCL_LOW = (digitalRead(SCL) == LOW); // Check if SCL is Low.
+    int counter = 20;
+    while (SCL_LOW && (counter > 0)) {  //  loop waiting for SCL to become High only wait 2sec.
+      counter--;
+      delay(100);
+      SCL_LOW = (digitalRead(SCL) == LOW);
+    }
+    if (SCL_LOW) { // still low after 2 sec error
+      blynkLogger.error("I2C_ClearBus(): Could not clear. SCL clock line held low by slave clock stretch for >2sec");
+      return 2; // I2C bus error. Could not clear. SCL clock line held low by slave clock stretch for >2sec
+    }
+    SDA_LOW = (digitalRead(SDA) == LOW); //   and check SDA input again and loop
+  }
+  if (SDA_LOW) { // still low
+    blynkLogger.error("I2C_ClearBus(): Could not clear. SDA data line held low");
+    return 3; // I2C bus error. Could not clear. SDA data line held low
+  }
+
+  // else pull SDA line low for Start or Repeated Start
+  pinMode(SDA, INPUT); // remove pullup.
+  pinMode(SDA, OUTPUT);  // and then make it LOW i.e. send an I2C Start or Repeated start control.
+  // When there is only one I2C master a Start or Repeat Start has the same function as a Stop and clears the bus.
+  /// A Repeat Start is a Start occurring after a Start with no intervening Stop.
+  delayMicroseconds(10); // wait >5uS
+  pinMode(SDA, INPUT); // remove output low
+  pinMode(SDA, INPUT_PULLUP); // and make SDA high i.e. send I2C STOP control.
+  delayMicroseconds(10); // x. wait >5uS
+  pinMode(SDA, INPUT); // and reset pins as tri-state inputs which is the default state on reset
+  pinMode(SCL, INPUT);
+
+  blynkLogger.info("I2C_ClearBus(): Success");
+  
+  return 0; // all ok
+}
+
+void readVoc()
+{ 
   uint8_t error;
   if ((error = vocSensor.getErrorRegister()) != CCS811Core::SENSOR_SUCCESS) {
     blynkLogger.error("readVoc(): I2C error. Recovering...");
@@ -522,6 +623,37 @@ void minuteCron()
   vocAverages();
   dustAverages();
   sendStatusToBlynk();
+
+  time_t now = time(nullptr);
+  struct tm lightsOffTime = *localtime(&now);
+  struct tm lightsOnTime = *localtime(&now);
+  lightsOnTime.tm_hour =  17;
+  lightsOnTime.tm_min =  0;
+  lightsOnTime.tm_sec = 0;
+  
+  lightsOffTime.tm_hour = 23;
+  lightsOffTime.tm_min = 59;
+  lightsOffTime.tm_sec = 0;
+  double diffToOff = difftime(now, mktime(&lightsOffTime));
+  double diffToOn = difftime(now, mktime(&lightsOnTime));
+
+  if (diffToOff > 0 && diffToOff < 60) {
+    turnLightsOff();
+    lightsOn = false;
+    updateBlynkLightsPin();
+  } else if (diffToOn > 0 && diffToOn < 60) {
+    turnLightsOn();
+    lightsOn = true;
+    updateBlynkLightsPin();
+  }
+  
+}
+
+void updateBlynkLightsPin()
+{
+  if (Blynk.connected()) {
+    Blynk.virtualWrite(BLYNK_LIGHTS_PIN, lightsOn);
+  }
 }
 
 void vocAverages()
@@ -599,112 +731,53 @@ void sendStatusToBlynk()
 /**
  * Send data to Blynk (sync pins)
  */
-/*BLYNK_READ(BLYNK_FAN_CONTROL_VPIN) //Function to set status of BLYNK widget on Android
+BLYNK_READ(V10)
 {
-  Blynk.virtualWrite(BLYNK_FAN_CONTROL_VPIN, autoFanControl);
-}*/
+  updateBlynkLightsPin();
+}
 
 /**
  * Receive data from Blynk
  */
-/*BLYNK_WRITE(V5) {
-  Log.verbose("BLYNK_WRITE(): Received blynk command %d."CR, param.asInt());
+BLYNK_WRITE(V10) {
+  sprintf(logBuffer, "BLYNK_WRITE(): Received blynk command %d.", param.asInt());
+  blynkLogger.debug(logBuffer);
 
   switch (param.asInt())
   {
     case 1: {
-
+        turnLightsOn();
+        break;
+      }
+    case 0: {
+        turnLightsOff();
         break;
       }
   }
-}*/
-
-/*void printTimestamp(Print* _logOutput)
-{
-  char c[12];
-  int m = sprintf(c, "%10lu ", millis());
-  _logOutput->print(c);
-}*/
-
-/**
- * Adapted from:
- * http://www.forward.com.au/pfod/ArduinoProgramming/I2C_ClearBus/I2C_ClearBus.ino.txt
- */
-int clearI2CBus()
-{
-#if defined(TWCR) && defined(TWEN)
-  TWCR &= ~(_BV(TWEN)); //Disable the Atmel 2-Wire interface so we can control the SDA and SCL pins directly
-#endif
-  pinMode(SDA, INPUT_PULLUP); // Make SDA (data) and SCL (clock) pins Inputs with pullup.
-  pinMode(SCL, INPUT_PULLUP);
-
-  //delay(2500);  // Wait 2.5 secs. This is strictly only necessary on the first power
-  // up of the DS3231 module to allow it to initialize properly,
-  // but is also assists in reliable programming of FioV3 boards as it gives the
-  // IDE a chance to start uploaded the program
-  // before existing sketch confuses the IDE by sending Serial data.
-
-  boolean SCL_LOW = (digitalRead(SCL) == LOW); // Check if SCL is Low.
-  if (SCL_LOW) { //If it is held low Arduno cannot become the I2C master. 
-    blynkLogger.error("I2C_ClearBus(): Could not clear. SCL clock line held low");
-    return 1; //I2C bus error. Could not clear SCL clock line held low
-  }
-
-  boolean SDA_LOW = (digitalRead(SDA) == LOW);  // vi. Check SDA input.
-  int clockCount = 20; // > 2x9 clock
-
-  while (SDA_LOW && (clockCount > 0)) { //  vii. If SDA is Low,
-    clockCount--;
-    // Note: I2C bus is open collector so do NOT drive SCL or SDA high.
-    pinMode(SCL, INPUT); // release SCL pullup so that when made output it will be LOW
-    pinMode(SCL, OUTPUT); // then clock SCL Low
-    delayMicroseconds(10); //  for >5uS
-    pinMode(SCL, INPUT); // release SCL LOW
-    pinMode(SCL, INPUT_PULLUP); // turn on pullup resistors again
-    // do not force high as slave may be holding it low for clock stretching.
-    delayMicroseconds(10); //  for >5uS
-    // The >5uS is so that even the slowest I2C devices are handled.
-    SCL_LOW = (digitalRead(SCL) == LOW); // Check if SCL is Low.
-    int counter = 20;
-    while (SCL_LOW && (counter > 0)) {  //  loop waiting for SCL to become High only wait 2sec.
-      counter--;
-      delay(100);
-      SCL_LOW = (digitalRead(SCL) == LOW);
-    }
-    if (SCL_LOW) { // still low after 2 sec error
-      blynkLogger.error("I2C_ClearBus(): Could not clear. SCL clock line held low by slave clock stretch for >2sec");
-      return 2; // I2C bus error. Could not clear. SCL clock line held low by slave clock stretch for >2sec
-    }
-    SDA_LOW = (digitalRead(SDA) == LOW); //   and check SDA input again and loop
-  }
-  if (SDA_LOW) { // still low
-    blynkLogger.error("I2C_ClearBus(): Could not clear. SDA data line held low");
-    return 3; // I2C bus error. Could not clear. SDA data line held low
-  }
-
-  // else pull SDA line low for Start or Repeated Start
-  pinMode(SDA, INPUT); // remove pullup.
-  pinMode(SDA, OUTPUT);  // and then make it LOW i.e. send an I2C Start or Repeated start control.
-  // When there is only one I2C master a Start or Repeat Start has the same function as a Stop and clears the bus.
-  /// A Repeat Start is a Start occurring after a Start with no intervening Stop.
-  delayMicroseconds(10); // wait >5uS
-  pinMode(SDA, INPUT); // remove output low
-  pinMode(SDA, INPUT_PULLUP); // and make SDA high i.e. send I2C STOP control.
-  delayMicroseconds(10); // x. wait >5uS
-  pinMode(SDA, INPUT); // and reset pins as tri-state inputs which is the default state on reset
-  pinMode(SCL, INPUT);
-
-  blynkLogger.info("I2C_ClearBus(): Success");
-  
-  return 0; // all ok
 }
 
+void turnLightsOn()
+{
+  blynkLogger.info("Turning lights on");
+  irsend.sendNEC(CODE_ON);
+}
 
-void sendGratuitousARP() {
-    netif *n = netif_list;
+void turnLightsOff()
+{
+  blynkLogger.info("Turning lights off");
+  irsend.sendNEC(CODE_OFF);
+}
 
-    while (n) {
-        etharp_gratuitous(n);
-        n = n->next;
-    }
+BLYNK_WRITE(V7)
+{
+  if (strcmp(param.asStr(), "help") == 0) {
+      terminal.println("Available commands:");
+      terminal.println("time");
+  } else if (strcmp(param.asStr(), "time") == 0) {
+      time_t now = time(nullptr);
+      terminal.printf("Current time: %s", ctime(&now));
+  }
+
+  // Ensure everything is sent
+  terminal.flush();
 }

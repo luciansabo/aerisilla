@@ -50,12 +50,17 @@ const uint8_t DOUT1_PIN = 13;          // digital output 1 (ex: lights relay, mo
 const uint8_t DOUT2_PIN = 16;          // digital output 2 (ex: Air conditioning remote control IR led)
 
 // blynk virtual PINS
+const uint8_t BLYNK_REALTIME_TEMP_PIN = V0;
+const uint8_t BLYNK_REALTIME_HUM_PIN = V1;
+const uint8_t BLYNK_REALTIME_HEATINDEX_PIN = V2;
 const uint8_t BLYNK_ECO2_AVG_PIN = V3;
 const uint8_t BLYNK_STATUS_TEXT_PIN = V4;
 const uint8_t BLYNK_REALTIME_VOC_PIN = V5;
 const uint8_t BLYNK_REALTIME_ECO2_PIN = V6;
+const uint8_t BLYNK_TERMINAL_PIN = V7;
 const uint8_t BLYNK_REALTIME_DUST_PIN = V8;
 const uint8_t BLYNK_DUST_1M_AVG_PIN = V9;
+const uint8_t BLYNK_LIGHTS_PIN = V10;
 
 const uint32_t TEMP_READING_INTERVAL = 15010;    // ~15s
 const float TEMP_CALIBRATION_FACTOR = 0.982;  // calibrate against known precise thermometer

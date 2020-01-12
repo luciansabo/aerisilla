@@ -72,7 +72,20 @@ void BlynkLogger::setBlynklLogLevel(LogLevel level)
 
 void BlynkLogger::_log(char *message, LogLevel level)
 {
+    char timeBuf[100];
+    bool hasTime  = false;
+    time_t now = time(NULL);
+
+    if (now > 28900) {
+      struct tm * timeStruct = localtime(&now);
+      strftime(timeBuf, 100, "%b %d %T " , timeStruct);
+      hasTime = true;
+    }
+    
     if (serialLogLevel >= level) {
+        if (hasTime) {
+          Serial.print(timeBuf);
+        }
         Serial.println(message);
     }
 
@@ -89,9 +102,15 @@ void BlynkLogger::_log(char *message, LogLevel level)
      
     if (blynklLogLevel >= level) {
         if (Blynk.connected()) {
+            if (hasTime) {
+              terminal->print(timeBuf);
+            }
             terminal->println(message);
             terminal->flush();
         } else {
+            if (hasTime) {
+              strcat(logBuffer, timeBuf);
+            }
             strcat(logBuffer, message);
             strcat(logBuffer, "\n");
         }
